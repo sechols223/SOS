@@ -1,0 +1,7 @@
+BOOTDIR?=boot
+KERNELDIR?=kernel
+
+
+
+
+
