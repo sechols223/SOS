@@ -5,6 +5,8 @@
 *.elf
 *.img
 
-
+*.tar.gz
+bochs-2.6.11
+build
 notes.txt
-
+bochsout.txt

@@ -1,27 +1,15 @@
 #!/bin/bash
 
-clean() {
-  rm -rf *.bin
-  rm -rf *.img
-}
+set -e
+. ./config.sh
 
-build() {
-  nasm boot.asm -f bin -o boot.bin
-  
-  sudo dd if=/dev/zero of=boot.img bs=512 count=2880
-  sudo dd if=boot.bin of=boot.img
-  
-}
 
 run() {
-  qemu-system-i386                                  \
-    -no-reboot                                      \
-    -drive format=raw,file=boot.img                 \
-    -serial stdio                                   \
-    -vga std
+  qemu-system-i386 -drive file=$BUILD_DIR/sos.img,format=raw \
+    -boot c -net none -vga vmware \
+    -monitor stdio \
+    -d guest_errors,int
 }
 
 
-clean
-build
 run

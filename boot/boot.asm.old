@@ -1,0 +1,177 @@
+bits    16          ; start  in 16-bit real mode
+org     0x7C00 
+
+jmp     main
+
+main:
+  cli
+  xor   ax, ax
+  mov   ds, ax              ; set DS to 0
+  mov   es, ax              ; set ES to 0
+  mov   ss, ax              ; set SS to 0
+  mov   sp, 0x9C00          ; set SP, grows towards 0x0000
+  sti                       ; set interrupts
+
+  mov   si, message
+  call  print
+ 
+  mov   si, enabling_a20_message
+  call  print
+
+  cli
+
+  call  enable_a20          ; enable A20 line for 32-bit addressing
+
+  ;in al,0xee
+
+  call  verify_a20
+  cli
+  lgdt  [gdt_descriptor]    ; load GDT
+  
+  mov   si, entering_prot_mode_msg
+  call  print
+  
+  cli
+  ; switch to protected mode
+  mov   eax, cr0
+  or    eax, 1
+  mov   cr0, eax
+  jmp   CODE_SEG:init_pm    ; far jump to code segment - flush pipeline
+  
+section .data
+align 4
+
+gdt_start:
+  dq    0
+code_segment_descriptor:
+  dw    0xFFFF      ; limit-low
+  dw    0x000       ; base-low
+  db    0x00        ; base-middle
+  db    10010010b   ; access byte, ring 0, code,executable, readable
+  db    11001111b   ; Granularity byte: granularity 4K, 32-bit, limit 4G
+  db    0x00        ; base-high
+
+data_segment_descriptor:
+  dw    0xFFFF      ; limit-low
+  dw    0x000       ; base-low
+  db    0x00        ; base-middle
+  db    10010010b   ; access byte, ring 0, code,executable, readable
+  db    11001111b   ; Granularity byte: granularity 4K, 32-bit, limit 4G
+  db    0x00        ; base-high
+
+gdt_end:
+gdt_descriptor:
+  dw    gdt_end - gdt_start - 1     ; size of GDT
+  dd    gdt_start                   ; address of GDT
+
+section .text
+bits 32
+init_pm:
+  mov   ax, DATA_SEG    ; setup segment registers with the selector of data segment
+  mov   ds, ax
+  mov   es, ax
+  mov   fs, ax
+  mov   gs, ax
+  mov   ss, ax
+
+  mov   esp, 0x90000
+  call  load_kernel
+
+load_kernel:
+  mov   ax, 0x1000
+  mov   es, ax
+  xor   bx, bx
+
+  mov   ah, 0x02
+  mov   al, 15
+  mov   ch, 0
+  mov   cl, 2
+  mov   dh, 0
+
+  int   0x13
+  jc    disk_error
+  ret
+
+disk_error:
+  mov   si, disk_error_message
+  call  print
+
+  jmp $
+
+enable_a20:
+    mov     si, entering_a20_msg
+    call    print
+
+    mov     ax, 0x2401          ; BIOS function to enable A20
+    int     0x15                ; Call BIOS
+    jc      a20_failed           ; Check if there was an error
+    ret
+
+a20_failed:
+    mov     si, a20_not_enabled_message
+    call    print
+    jmp     $                   ; Halt the system on failure
+
+CODE_SEG    equ gdt_start + 8   ; offset of code segment in GDT
+DATA_SEG    equ gdt_start + 16  ; offset of data segment in GDT
+
+print:
+  lodsb
+  or    al, al
+  jz    halt
+
+  mov   ah, 0x0E
+  mov   bh, 0x0
+  mov   bl, 0x02
+  int   0x10
+  jmp   print
+
+verify_a20:
+    cli
+
+    ; Check if A20 is enabled by comparing addresses
+    mov     ax, 0x0005      ; Arbitrary segment
+    mov     es, ax
+    mov     bx, 0xFFFF      ; Address at the edge of 1MB
+    mov     al, 0xAA        ; Test data
+
+    mov     es:[bx], al     ; Write to 0x0005:0xFFFF (1MB - 1)
+    mov     al, 0x55
+    mov     es:[bx+1], al   ; Write to 0x0005:0x10000 (1MB)
+
+    mov     al, es:[bx]
+    cmp     al, 0x55
+    je      a20_not_enabled
+     
+    jmp     a20_enabled
+
+    ret
+a20_enabled:
+  mov   si, a20_enabled_message
+  call  print
+  ret
+
+a20_not_enabled:    
+  mov   si, a20_not_enabled_message
+  call  print
+  hlt
+
+halt: 
+  ret 
+
+
+
+message:                        db "SOS", 13, 10, 0
+disk_error_message:             db "Could not read from disk", 13, 10, 0
+a20_not_enabled_message:        db "A20 was not enabled", 13, 10, 0
+a20_enabled_message:            db "A20 was enabled", 13, 10, 0
+enabling_a20_message:           db "Enabling A20..", 13, 10, 0
+entering_prot_mode_msg:         db "Entering Protected Mode..", 13, 10, 0
+getting_input_msg:              db "Getting input..", 13, 10, 0
+getting_output_msg:             db "Getting output..", 13, 10, 0
+entering_a20_msg:               db "Entering A20..",  13, 10, 0
+
+
+
+times   510-($-$$) db 0
+dw      0xAA55
